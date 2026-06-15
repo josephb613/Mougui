@@ -46,6 +46,8 @@ import com.example.viewmodel.DatingViewModel
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Initialize Firebase dynamically at startup
+        com.example.service.FirebaseHelper.initialize(applicationContext)
         enableEdgeToEdge()
         setContent {
             MyApplicationTheme {
@@ -130,7 +132,8 @@ fun MainAppEntry() {
                             PersonalProfileViewScreen(
                                 state = state,
                                 onSubscribeClick = { showSubscriptionSheet = true },
-                                onTabSelected = { datingViewModel.selectTab(it) }
+                                onTabSelected = { datingViewModel.selectTab(it) },
+                                onTestFirebase = { datingViewModel.testFirebaseConnection() }
                             )
                         }
                     }
@@ -321,7 +324,8 @@ fun MatchesDashboardScreen(
 fun PersonalProfileViewScreen(
     state: DatingUiState,
     onSubscribeClick: () -> Unit,
-    onTabSelected: (String) -> Unit
+    onTabSelected: (String) -> Unit,
+    onTestFirebase: () -> Unit
 ) {
     Scaffold(
         modifier = Modifier.fillMaxSize(),
@@ -415,6 +419,233 @@ fun PersonalProfileViewScreen(
                 ProfileStatItem(count = "2.4k", label = "Likes")
                 VerticalDivider(modifier = Modifier.width(1.dp).height(40.dp), color = Color.White.copy(alpha = 0.1f))
                 ProfileStatItem(count = "95", label = "Matchs")
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // BACKEND FIREBASE STATUS CARD
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(DarkSurface)
+                    .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(24.dp))
+                    .padding(20.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Default.Cloud,
+                            contentDescription = "Cloud Icon",
+                            tint = BrandPrimary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Connexion Firebase",
+                            color = Color.White,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+
+                    // Status badge
+                    val isFbInited = com.example.service.FirebaseHelper.isInitialized
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(
+                                if (isFbInited) Color(0xFF10B981).copy(alpha = 0.15f)
+                                else Color(0xFFF59E0B).copy(alpha = 0.15f)
+                            )
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(8.dp)
+                                .clip(CircleShape)
+                                .background(if (isFbInited) Color(0xFF10B981) else Color(0xFFF59E0B))
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = if (isFbInited) "Activé" else "Mode Démo",
+                            color = if (isFbInited) Color(0xFF10B981) else Color(0xFFF59E0B),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                HorizontalDivider(color = Color.White.copy(alpha = 0.08f))
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Credentials summary
+                val projectId = com.example.BuildConfig.FIREBASE_PROJECT_ID
+                val appId = com.example.BuildConfig.FIREBASE_APPLICATION_ID
+                val isFbInitedSpec = com.example.service.FirebaseHelper.isInitialized
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(text = "Project ID :", color = GrayText, fontSize = 12.sp)
+                        Text(
+                            text = if (isFbInitedSpec && projectId.isNotBlank() && projectId != "YOUR_FIREBASE_PROJECT_ID_HERE") projectId else "Non configuré",
+                            color = if (isFbInitedSpec) Color.White else GrayText.copy(alpha = 0.6f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(text = "App ID :", color = GrayText, fontSize = 12.sp)
+                        Text(
+                            text = if (isFbInitedSpec && appId.isNotBlank() && appId != "YOUR_FIREBASE_APP_ID_HERE" && appId.length > 25) {
+                                "${appId.take(12)}...${appId.takeLast(10)}"
+                            } else if (isFbInitedSpec && appId.isNotBlank() && appId != "YOUR_FIREBASE_APP_ID_HERE") {
+                                appId
+                            } else {
+                                "N/A (Mode démo hors-ligne)"
+                            },
+                            color = if (isFbInitedSpec) Color.White else GrayText.copy(alpha = 0.6f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Action verification test button
+                Button(
+                    onClick = onTestFirebase,
+                    enabled = !state.isTestingFirebase,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .testTag("verify_firebase_button"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isFbInitedSpec) BrandPrimary else Color.White.copy(alpha = 0.05f),
+                        contentColor = if (isFbInitedSpec) Color.Black else Color.White.copy(alpha = 0.4f),
+                        disabledContainerColor = Color.White.copy(alpha = 0.08f),
+                        disabledContentColor = Color.White.copy(alpha = 0.3f)
+                    ),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    if (state.isTestingFirebase) {
+                        CircularProgressIndicator(
+                            color = if (isFbInitedSpec) Color.Black else Color.White,
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(text = "Analyse en cours...", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Test Connection",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Lancer le test de diagnostic (Écrit/Lu)",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                // If testMessage isNotEmpty, show status result section
+                if (state.firebaseTestMessage.isNotEmpty() || state.firebaseTestSuccess != null) {
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    val bannerBg = when (state.firebaseTestSuccess) {
+                        true -> Color(0xFF10B981).copy(alpha = 0.08f)
+                        false -> Color(0xFFEF4444).copy(alpha = 0.08f)
+                        else -> Color.White.copy(alpha = 0.04f)
+                    }
+                    val bannerBorder = when (state.firebaseTestSuccess) {
+                        true -> Color(0xFF10B981).copy(alpha = 0.15f)
+                        false -> Color(0xFFEF4444).copy(alpha = 0.15f)
+                        else -> Color.White.copy(alpha = 0.08f)
+                    }
+                    val bannerIconColor = when (state.firebaseTestSuccess) {
+                        true -> Color(0xFF10B981)
+                        false -> Color(0xFFEF4444)
+                        else -> Color.White.copy(alpha = 0.6f)
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(14.dp))
+                            .background(bannerBg)
+                            .border(1.dp, bannerBorder, RoundedCornerShape(14.dp))
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = when (state.firebaseTestSuccess) {
+                                    true -> Icons.Default.CheckCircle
+                                    false -> Icons.Default.Warning
+                                    else -> Icons.Default.Info
+                                },
+                                contentDescription = "Test Status Icon",
+                                tint = bannerIconColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            
+                            // Colorful status badge
+                            val badgeLabel = when (state.firebaseTestSuccess) {
+                                true -> "SUCCÈS"
+                                false -> "ERREUR"
+                                else -> "DIAGNOSTIC"
+                            }
+                            val badgeColor = when (state.firebaseTestSuccess) {
+                                true -> Color(0xFF10B981)
+                                false -> Color(0xFFEF4444)
+                                else -> Color(0xFF3B82F6)
+                            }
+                            
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(badgeColor.copy(alpha = 0.15f))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp)
+                            ) {
+                                Text(
+                                    text = badgeLabel,
+                                    color = badgeColor,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(8.dp))
+                        
+                        Text(
+                            text = state.firebaseTestMessage,
+                            color = Color.White,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
