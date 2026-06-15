@@ -1,0 +1,6 @@
+{
+  "name": "FindYourLove",
+  "description": "A premium and highly-polished dating and matchmaking application with a dark luxury design and gesture-based swiping profiles.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
