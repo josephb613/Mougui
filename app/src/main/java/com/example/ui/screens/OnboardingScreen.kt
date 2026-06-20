@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import com.example.viewmodel.DatingUiState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.*
 import androidx.compose.animation.fadeIn
@@ -44,20 +45,32 @@ import com.example.ui.theme.GrayText
 
 enum class OnboardingTab {
     WELCOME,
-    REGISTRATION
+    REGISTRATION,
+    LOGIN
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun OnboardingScreen(
-    onGetStarted: (name: String, phone: String) -> Unit,
+    state: DatingUiState,
+    onGetStarted: (name: String, phone: String, password: String) -> Unit,
+    onLogin: (phone: String, password: String, onResult: (Boolean) -> Unit) -> Unit,
+    onClearError: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var currentTab by remember { mutableStateOf(OnboardingTab.WELCOME) }
     var nameInput by remember { mutableStateOf("") }
     var phoneInput by remember { mutableStateOf("") }
+    var passwordInput by remember { mutableStateOf("") }
     var phoneError by remember { mutableStateOf(false) }
     var nameError by remember { mutableStateOf(false) }
+    var passwordError by remember { mutableStateOf(false) }
+
+    var loginPhoneInput by remember { mutableStateOf("") }
+    var loginPasswordInput by remember { mutableStateOf("") }
+    var loginPhoneError by remember { mutableStateOf(false) }
+    var loginPasswordError by remember { mutableStateOf(false) }
+    var localLoginError by remember { mutableStateOf<String?>(null) }
 
     // Dynamic entry animations for a hyper-premium feel
     var visible by remember { mutableStateOf(false) }
@@ -185,7 +198,10 @@ fun OnboardingScreen(
                                                 colors = listOf(BrandPrimary, BrandSecondary)
                                             )
                                         )
-                                        .clickable { currentTab = OnboardingTab.REGISTRATION }
+                                        .clickable { 
+                                            currentTab = OnboardingTab.REGISTRATION 
+                                            onClearError()
+                                        }
                                         .testTag("onboarding_get_started"),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -205,7 +221,10 @@ fun OnboardingScreen(
                                         .size(64.dp)
                                         .clip(CircleShape)
                                         .background(BrandPrimary)
-                                        .clickable { currentTab = OnboardingTab.REGISTRATION },
+                                        .clickable { 
+                                            currentTab = OnboardingTab.REGISTRATION 
+                                            onClearError()
+                                        },
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
@@ -250,7 +269,10 @@ fun OnboardingScreen(
                                     .size(44.dp)
                                     .clip(CircleShape)
                                     .background(Color.White.copy(alpha = 0.1f))
-                                    .clickable { currentTab = OnboardingTab.WELCOME },
+                                    .clickable { 
+                                        currentTab = OnboardingTab.WELCOME 
+                                        onClearError()
+                                    },
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -307,6 +329,7 @@ fun OnboardingScreen(
                                 onValueChange = {
                                     nameInput = it
                                     nameError = false
+                                    onClearError()
                                 },
                                 placeholder = { Text("ex: Joseph", color = Color.White.copy(alpha = 0.35f)) },
                                 modifier = Modifier
@@ -354,11 +377,15 @@ fun OnboardingScreen(
                                 value = phoneInput,
                                 onValueChange = { newValue ->
                                     // Strip non-numerical to protect layout and validation
-                                    val cleaned = newValue.filter { it.isDigit() }
+                                    var cleaned = newValue.filter { it.isDigit() }
+                                    if (cleaned.startsWith("0")) {
+                                        cleaned = cleaned.drop(1)
+                                    }
                                     if (cleaned.length <= 9) {
                                         phoneInput = cleaned
                                         phoneError = false
                                     }
+                                    onClearError()
                                 },
                                 placeholder = { Text("812 345 678", color = Color.White.copy(alpha = 0.35f)) },
                                 modifier = Modifier
@@ -414,29 +441,93 @@ fun OnboardingScreen(
                                     modifier = Modifier.padding(start = 8.dp, top = 4.dp)
                                 )
                             }
+
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            // Password Field
+                            Text(
+                                text = "Créer votre Mot de passe",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            OutlinedTextField(
+                                value = passwordInput,
+                                onValueChange = {
+                                    passwordInput = it
+                                    passwordError = false
+                                    onClearError()
+                                },
+                                placeholder = { Text("6 caractères minimum", color = Color.White.copy(alpha = 0.35f)) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("onboarding_password_input"),
+                                shape = RoundedCornerShape(16.dp),
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Filled.Lock,
+                                        contentDescription = "Mot de passe",
+                                        tint = BrandPrimary
+                                    )
+                                },
+                                singleLine = true,
+                                isError = passwordError,
+                                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = BrandPrimary,
+                                    unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                                    focusedContainerColor = DarkSurface,
+                                    unfocusedContainerColor = DarkSurface,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                )
+                            )
+                            if (state.loginError != null) {
+                                Text(
+                                    text = state.loginError,
+                                    color = Color.Red,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(start = 8.dp, top = 4.dp)
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                            }
+
+                            if (passwordError) {
+                                Text(
+                                    text = "Le mot de passe doit contenir au moins 6 caractères",
+                                    color = Color.Red,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(start = 8.dp, top = 4.dp)
+                                )
+                            }
                         }
 
-                        // Bottom Action Button
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
+                        // Bottom Action Button & Switch Link
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Button(
                                 onClick = {
                                     val isNameVal = nameInput.isNotBlank()
                                     // DRC phone numbers typically have 9 digits (e.g. 812345678)
                                     val isPhoneVal = phoneInput.length == 9
+                                    val isPasswordVal = passwordInput.length >= 6
 
                                     nameError = !isNameVal
                                     phoneError = !isPhoneVal
+                                    passwordError = !isPasswordVal
 
-                                    if (isNameVal && isPhoneVal) {
+                                    if (isNameVal && isPhoneVal && isPasswordVal) {
                                         // Formatter: e.g. "812345678" -> "+243 812 345 678"
                                         val part1 = phoneInput.substring(0, 3)
                                         val part2 = phoneInput.substring(3, 6)
                                         val part3 = phoneInput.substring(6, 9)
                                         val formatted = "+243 $part1 $part2 $part3"
-                                        onGetStarted(nameInput.trim(), formatted)
+                                        onGetStarted(nameInput.trim(), formatted, passwordInput)
                                     }
                                 },
                                 modifier = Modifier
@@ -465,6 +556,337 @@ fun OnboardingScreen(
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.Bold
                                     )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Row(
+                                horizontalArrangement = Arrangement.Center,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Déjà inscrit(e) ? ",
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = "Connectez-vous !",
+                                    color = BrandPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .clickable { 
+                                            currentTab = OnboardingTab.LOGIN 
+                                            localLoginError = null
+                                            onClearError()
+                                        }
+                                        .testTag("onboarding_toggle_to_login")
+                                )
+                            }
+                        }
+                    }
+                }
+
+                OnboardingTab.LOGIN -> {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 24.dp, vertical = 40.dp)
+                            .windowInsetsPadding(WindowInsets.safeDrawing),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                        horizontalAlignment = Alignment.Start
+                    ) {
+                        // Header Back Button
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(44.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.1f))
+                                    .clickable { 
+                                        currentTab = OnboardingTab.WELCOME 
+                                        onClearError()
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Retour",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(16.dp))
+                            Text(
+                                text = "CONNEXION",
+                                color = Color.White.copy(alpha = 0.7f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 2.sp
+                            )
+                        }
+
+                        // Login Form block
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(vertical = 24.dp),
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = "Bon retour ! 😊",
+                                color = Color.White,
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.Black
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Text(
+                                text = "Saisissez votre numéro de téléphone pour retrouver vos matchs et discussions.",
+                                color = GrayText,
+                                fontSize = 14.sp,
+                                lineHeight = 20.sp
+                            )
+
+                            Spacer(modifier = Modifier.height(36.dp))
+
+                            // RDC (+243) Phone Field
+                            Text(
+                                text = "Votre Numéro de téléphone (RDC)",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            OutlinedTextField(
+                                value = loginPhoneInput,
+                                onValueChange = { newValue ->
+                                    var cleaned = newValue.filter { it.isDigit() }
+                                    if (cleaned.startsWith("0")) {
+                                        cleaned = cleaned.drop(1)
+                                    }
+                                    if (cleaned.length <= 9) {
+                                        loginPhoneInput = cleaned
+                                        loginPhoneError = false
+                                    }
+                                    localLoginError = null
+                                    onClearError()
+                                },
+                                placeholder = { Text("812 345 678", color = Color.White.copy(alpha = 0.35f)) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("onboarding_login_phone_input"),
+                                shape = RoundedCornerShape(16.dp),
+                                leadingIcon = {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.padding(start = 12.dp)
+                                    ) {
+                                        Text(text = "🇨🇩", fontSize = 18.sp)
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text(
+                                            text = "+243",
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Box(
+                                            modifier = Modifier
+                                                .width(1.dp)
+                                                .height(18.dp)
+                                                .background(Color.White.copy(alpha = 0.2f))
+                                        )
+                                    }
+                                },
+                                singleLine = true,
+                                isError = loginPhoneError || localLoginError != null || state.loginError != null,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Phone),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = BrandPrimary,
+                                    unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                                    focusedContainerColor = DarkSurface,
+                                    unfocusedContainerColor = DarkSurface,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                )
+                            )
+                            
+                            val displayError = localLoginError ?: state.loginError
+                            if (loginPhoneError) {
+                                Text(
+                                    text = "Veuillez entrer un numéro de téléphone RDC valide (9 chiffres)",
+                                    color = Color.Red,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(start = 8.dp, top = 4.dp)
+                                )
+                            } else if (displayError != null) {
+                                Text(
+                                    text = displayError,
+                                    color = Color.Red,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(start = 8.dp, top = 4.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = "Entrez vos 9 chiffres (ex: 812 345 678)",
+                                    color = Color.White.copy(alpha = 0.4f),
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(start = 8.dp, top = 4.dp)
+                                )
+                            }
+                            
+                            Spacer(modifier = Modifier.height(24.dp))
+
+                            // Password Field
+                            Text(
+                                text = "Votre Mot de passe",
+                                color = Color.White,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+                            OutlinedTextField(
+                                value = loginPasswordInput,
+                                onValueChange = {
+                                    loginPasswordInput = it
+                                    loginPasswordError = false
+                                    onClearError()
+                                },
+                                placeholder = { Text("Entrez votre mot de passe", color = Color.White.copy(alpha = 0.35f)) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("onboarding_login_password_input"),
+                                shape = RoundedCornerShape(16.dp),
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Filled.Lock,
+                                        contentDescription = "Mot de passe",
+                                        tint = BrandPrimary
+                                    )
+                                },
+                                singleLine = true,
+                                isError = loginPasswordError,
+                                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = BrandPrimary,
+                                    unfocusedBorderColor = Color.White.copy(alpha = 0.15f),
+                                    focusedContainerColor = DarkSurface,
+                                    unfocusedContainerColor = DarkSurface,
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                )
+                            )
+                            if (loginPasswordError) {
+                                Text(
+                                    text = "Veuillez entrer votre mot de passe (6 caractères min)",
+                                    color = Color.Red,
+                                    fontSize = 11.sp,
+                                    modifier = Modifier.padding(start = 8.dp, top = 4.dp)
+                                )
+                            }
+                            
+                            Spacer(modifier = Modifier.height(24.dp))
+                            
+                            // Link to Registration Screen
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Text(
+                                    text = "Pas encore inscrit(e) ? ",
+                                    color = Color.White.copy(alpha = 0.6f),
+                                    fontSize = 13.sp
+                                )
+                                Text(
+                                    text = "Créez votre compte !",
+                                    color = BrandPrimary,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .clickable { 
+                                            currentTab = OnboardingTab.REGISTRATION 
+                                            localLoginError = null
+                                            onClearError()
+                                        }
+                                        .testTag("onboarding_toggle_to_register")
+                                )
+                            }
+                        }
+
+                        // Bottom Action Button
+                        Box(
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Button(
+                                onClick = {
+                                    val isPhoneVal = loginPhoneInput.length == 9
+                                    val isPasswordVal = loginPasswordInput.length >= 6
+                                    loginPhoneError = !isPhoneVal
+                                    loginPasswordError = !isPasswordVal
+
+                                    if (isPhoneVal && isPasswordVal) {
+                                        val part1 = loginPhoneInput.substring(0, 3)
+                                        val part2 = loginPhoneInput.substring(3, 6)
+                                        val part3 = loginPhoneInput.substring(6, 9)
+                                        val formatted = "+243 $part1 $part2 $part3"
+                                        
+                                        onLogin(formatted, loginPasswordInput) { success ->
+                                            if (!success) {
+                                                // Fail triggers state.loginError display dynamically
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = !state.isLoggingIn,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(56.dp)
+                                    .testTag("onboarding_submit_login"),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = BrandPrimary
+                                ),
+                                shape = RoundedCornerShape(28.dp)
+                            ) {
+                                if (state.isLoggingIn) {
+                                    CircularProgressIndicator(
+                                        color = Color.White,
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = "Connexion...",
+                                        color = Color.White,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                } else {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Lock,
+                                            contentDescription = "Login",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text(
+                                            text = "Se connecter ✨",
+                                            color = Color.White,
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -38,10 +38,15 @@ import com.example.viewmodel.Message
 fun ChatScreen(
     state: DatingUiState,
     onSendMessage: (String, String) -> Unit,
+    onActiveChatChanged: (String?) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var activeChatProfile by remember { mutableStateOf<DatingProfile?>(null) }
     var textValue by remember { mutableStateOf("") }
+
+    LaunchedEffect(activeChatProfile) {
+        onActiveChatChanged(activeChatProfile?.id)
+    }
 
     Box(
         modifier = modifier

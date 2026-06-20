@@ -92,7 +92,8 @@ fun DiscoverScreen(
             DiscoverTopHeader(
                 currentFilter = state.currentFilter,
                 onFilterSelected = onFilterSelected,
-                notificationBadge = state.unreadNotificationsCount
+                notificationBadge = state.unreadNotificationsCount,
+                userImageUrl = state.userImageUrl
             )
 
             // 2. Swiper Core Area
@@ -273,7 +274,8 @@ fun DiscoverScreen(
 fun DiscoverTopHeader(
     currentFilter: FilterType,
     onFilterSelected: (FilterType) -> Unit,
-    notificationBadge: Int
+    notificationBadge: Int,
+    userImageUrl: String
 ) {
     Row(
         modifier = Modifier
@@ -282,9 +284,9 @@ fun DiscoverTopHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // User personal avatar in top left
+        // User personal avatar in top left (dynamic profile photo from Firebase Storage!)
         Image(
-            painter = rememberAsyncImagePainter("https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=150"),
+            painter = rememberAsyncImagePainter(userImageUrl),
             contentDescription = "My Profile Avatar",
             modifier = Modifier
                 .size(42.dp)

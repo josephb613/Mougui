@@ -1,8 +1,17 @@
 package com.example.ui.screens
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.rememberTransformableState
+import androidx.compose.foundation.gestures.transformable
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
@@ -43,6 +52,7 @@ fun ProfileDetailScreen(
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
+    var activeFullscreenImage by remember { mutableStateOf<String?>(null) }
     
     // Split phone number to display prefix clearly and blur only the suffix if not subscribed
     val parts = profile.phoneNumber.split(" ")
@@ -76,7 +86,10 @@ fun ProfileDetailScreen(
                 Image(
                     painter = rememberAsyncImagePainter(profile.imageUrl),
                     contentDescription = profile.name,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clickable { activeFullscreenImage = profile.imageUrl }
+                        .testTag("profile_image_main"),
                     contentScale = ContentScale.Crop
                 )
 
@@ -325,7 +338,11 @@ fun ProfileDetailScreen(
                                 contentDescription = "Recent portrait",
                                 modifier = Modifier
                                     .size(140.dp, 200.dp)
-                                    .clip(RoundedCornerShape(16.dp)),
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .clickable {
+                                        activeFullscreenImage = imgUrl
+                                    }
+                                    .testTag("profile_image_gallery"),
                                 contentScale = ContentScale.Crop
                             )
                         }
@@ -516,6 +533,117 @@ fun ProfileDetailScreen(
                             fontWeight = FontWeight.Bold
                         )
                     }
+                }
+            }
+        }
+
+        // --- PHOTO LIGHTBOX INTERACTIVE OVERLAY ---
+        AnimatedVisibility(
+            visible = activeFullscreenImage != null,
+            enter = fadeIn(animationSpec = tween(250)),
+            exit = fadeOut(animationSpec = tween(200)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            val imgUrl = activeFullscreenImage ?: ""
+            var scale by remember { mutableStateOf(1f) }
+            var offset by remember { mutableStateOf(Offset.Zero) }
+            val transformState = rememberTransformableState { zoomChange, offsetChange, _ ->
+                val newScale = (scale * zoomChange).coerceIn(1f, 4f)
+                scale = newScale
+                if (newScale > 1f) {
+                    offset += offsetChange
+                } else {
+                    offset = Offset.Zero
+                }
+            }
+
+            // Reset zoom factors when active photo overlays change
+            LaunchedEffect(activeFullscreenImage) {
+                scale = 1f
+                offset = Offset.Zero
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.95f))
+                    .testTag("photo_lightbox_overlay")
+            ) {
+                // Interactive Gestures touch area
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(Unit) {
+                            detectTapGestures(
+                                onTap = {
+                                    activeFullscreenImage = null
+                                },
+                                onDoubleTap = {
+                                    if (scale > 1f) {
+                                        scale = 1f
+                                        offset = Offset.Zero
+                                    } else {
+                                        scale = 2.5f
+                                    }
+                                }
+                            )
+                        },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = rememberAsyncImagePainter(imgUrl),
+                        contentDescription = "Zoomed portrait",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(1f/1.5f)
+                            .graphicsLayer(
+                                scaleX = scale,
+                                scaleY = scale,
+                                translationX = offset.x,
+                                translationY = offset.y
+                            )
+                            .transformable(state = transformState),
+                        contentScale = ContentScale.Fit
+                    )
+                }
+
+                // Close button icon
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(24.dp)
+                        .windowInsetsPadding(WindowInsets.statusBars)
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(Color.Black.copy(alpha = 0.6f))
+                        .clickable { activeFullscreenImage = null }
+                        .testTag("photo_lightbox_close_button"),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Fermer le zoom",
+                        tint = Color.White,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+
+                // Interactive info prompt bar at bottom
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(horizontal = 24.dp, vertical = 40.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(Color.Black.copy(alpha = 0.7f))
+                        .border(0.5.dp, Color.White.copy(alpha = 0.15f), RoundedCornerShape(20.dp))
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        text = "Toucher pour fermer • Pincer pour zoomer",
+                        color = Color.White.copy(alpha = 0.8f),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
                 }
             }
         }

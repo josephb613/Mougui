@@ -6,7 +6,11 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -62,7 +66,7 @@ fun MainAppEntry() {
     val datingViewModel: DatingViewModel = viewModel()
     val state by datingViewModel.uiState.collectAsState()
 
-    var isOnboarded by remember { mutableStateOf(false) }
+    val isOnboarded = state.isOnboarded
     var showSubscriptionSheet by remember { mutableStateOf(false) }
 
     // Navigation and BackPress Routing Layer
@@ -74,7 +78,7 @@ fun MainAppEntry() {
         } else if (state.currentBottomTab != "discover") {
             datingViewModel.selectTab("discover")
         } else if (isOnboarded) {
-            isOnboarded = false
+            datingViewModel.setOnboarded(false)
         }
     }
 
@@ -92,9 +96,24 @@ fun MainAppEntry() {
             if (!onboarded) {
                 // Left screen in design
                 OnboardingScreen(
-                    onGetStarted = { name, phone ->
-                        datingViewModel.registerUser(name, phone)
-                        isOnboarded = true
+                    state = state,
+                    onGetStarted = { name, phone, password ->
+                        datingViewModel.registerUser(name, phone, password) { success ->
+                            if (success) {
+                                datingViewModel.setOnboarded(true)
+                            }
+                        }
+                    },
+                    onLogin = { phone, password, onResult ->
+                        datingViewModel.loginUser(phone, password) { success ->
+                            if (success) {
+                                datingViewModel.setOnboarded(true)
+                            }
+                            onResult(success)
+                        }
+                    },
+                    onClearError = {
+                        datingViewModel.clearLoginError()
                     }
                 )
             } else {
@@ -125,15 +144,27 @@ fun MainAppEntry() {
                         "chat" -> {
                             ChatScreen(
                                 state = state,
-                                onSendMessage = { id, text -> datingViewModel.sendMessage(id, text) }
+                                onSendMessage = { id, text -> datingViewModel.sendMessage(id, text) },
+                                onActiveChatChanged = { id -> datingViewModel.setActiveChatRoom(id) }
                             )
                         }
                         "profile" -> {
+                            val context = androidx.compose.ui.platform.LocalContext.current
                             PersonalProfileViewScreen(
                                 state = state,
                                 onSubscribeClick = { showSubscriptionSheet = true },
                                 onTabSelected = { datingViewModel.selectTab(it) },
-                                onTestFirebase = { datingViewModel.testFirebaseConnection() }
+                                onTestFirebase = { datingViewModel.testFirebaseConnection() },
+                                onSyncAllData = { datingViewModel.syncAllDataToFirebase() },
+                                onImageSelected = { uri ->
+                                    datingViewModel.uploadProfileImage(uri) { success, errorMsg ->
+                                        if (success) {
+                                            android.widget.Toast.makeText(context, "Image de profil mise à jour !", android.widget.Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            android.widget.Toast.makeText(context, "Échec du téléversement: $errorMsg", android.widget.Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }
                             )
                         }
                     }
@@ -197,6 +228,21 @@ fun MainAppEntry() {
                     }
                 }
             }
+        }
+
+        // Gorgeous Fullscreen Loading Overlay covering the whole app during active operations
+        AnimatedVisibility(
+            visible = state.isFirebaseConnecting || state.isLoggingIn,
+            enter = fadeIn(animationSpec = tween(300)),
+            exit = fadeOut(animationSpec = tween(300))
+        ) {
+            PremiumLoadingScreen(
+                message = when {
+                    state.isLoggingIn -> "Recherche de votre compte et connexion sécurisée..."
+                    state.userName.isNotBlank() && state.userName != "Joseph" -> "Création de votre profil et synchronisation..."
+                    else -> "Préparation de l'univers de rencontre Firestore..."
+                }
+            )
         }
     }
 }
@@ -325,8 +371,18 @@ fun PersonalProfileViewScreen(
     state: DatingUiState,
     onSubscribeClick: () -> Unit,
     onTabSelected: (String) -> Unit,
-    onTestFirebase: () -> Unit
+    onTestFirebase: () -> Unit,
+    onSyncAllData: () -> Unit,
+    onImageSelected: (android.net.Uri) -> Unit = {}
 ) {
+    val launcher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri: android.net.Uri? ->
+        if (uri != null) {
+            onImageSelected(uri)
+        }
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = DarkBg,
@@ -354,20 +410,45 @@ fun PersonalProfileViewScreen(
                 textAlign = TextAlign.Start
             )
 
-            // Large center avatar with neon rings
+            // Large center avatar with neon rings and edit overlay
             Box(
                 modifier = Modifier
-                    .size(130.dp)
-                    .clip(CircleShape)
-                    .border(3.dp, if (state.isSubscribed) Color(0xFFFFD700) else BrandPrimary, CircleShape),
-                contentAlignment = Alignment.Center
+                    .size(130.dp),
+                contentAlignment = Alignment.BottomEnd
             ) {
-                Image(
-                    painter = rememberAsyncImagePainter("https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&q=80&w=300"),
-                    contentDescription = "User Portrait",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Crop
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(CircleShape)
+                        .border(3.dp, if (state.isSubscribed) Color(0xFFFFD700) else BrandPrimary, CircleShape)
+                        .clickable { launcher.launch("image/*") },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Image(
+                        painter = rememberAsyncImagePainter(state.userImageUrl),
+                        contentDescription = "User Portrait",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop
+                    )
+                }
+                
+                // Pencil edit overlay button
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(BrandPrimary)
+                        .border(2.dp, DarkBg, CircleShape)
+                        .clickable { launcher.launch("image/*") },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Edit,
+                        contentDescription = "Edit Profile Photo",
+                        tint = Color.White,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(14.dp))
@@ -560,6 +641,47 @@ fun PersonalProfileViewScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Lancer le test de diagnostic (Écrit/Lu)",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Backup/Seeder Data to Backend button
+                Button(
+                    onClick = onSyncAllData,
+                    enabled = !state.isTestingFirebase,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(46.dp)
+                        .testTag("backup_firestore_button"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = if (isFbInitedSpec) Color(0xFF10B981) else Color.White.copy(alpha = 0.05f),
+                        contentColor = if (isFbInitedSpec) Color.White else Color.White.copy(alpha = 0.4f),
+                        disabledContainerColor = Color.White.copy(alpha = 0.08f),
+                        disabledContentColor = Color.White.copy(alpha = 0.3f)
+                    ),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    if (state.isTestingFirebase) {
+                        CircularProgressIndicator(
+                            color = Color.White,
+                            modifier = Modifier.size(20.dp),
+                            strokeWidth = 2.dp
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(text = "Sauvegarde en cours...", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.Cloud,
+                            contentDescription = "Backup to Firestore",
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Sauvegarder tout vers le Backend",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -1077,6 +1199,171 @@ fun MatchCelebrationModal(
                     fontSize = 16.sp
                 )
             }
+        }
+    }
+}
+
+@Composable
+fun PremiumLoadingScreen(
+    message: String = "Connexion et chargement de l'univers..."
+) {
+    val infiniteTransition = rememberInfiniteTransition(label = "loader_anim")
+    
+    // Heart pulse scale animation
+    val scale by infiniteTransition.animateFloat(
+        initialValue = 0.85f,
+        targetValue = 1.25f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "heart_pulse"
+    )
+
+    // Glowing halo ring rotation
+    val rotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "halo_rotate"
+    )
+
+    // Pulse glows scale to intensify depth
+    val glowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.15f,
+        targetValue = 0.5f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1200, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glow_pulse"
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(DarkBg)
+            .clickable(enabled = false) { /* Prevent backdrop click intercepts */ }
+            .testTag("premium_loading_screen"),
+        contentAlignment = Alignment.Center
+    ) {
+        // Soft glowing background halo radial gradients
+        Box(
+            modifier = Modifier
+                .size(280.dp)
+                .graphicsLayer(scaleX = scale * 1.2f, scaleY = scale * 1.2f)
+                .background(
+                    Brush.radialGradient(
+                        colors = listOf(
+                            BrandPrimary.copy(alpha = glowAlpha),
+                            Color.Transparent
+                        )
+                    )
+                )
+        )
+
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.padding(32.dp)
+        ) {
+            // Heart Container
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(150.dp)
+            ) {
+                // Outlined rotating dotted circle
+                Canvas(
+                    modifier = Modifier
+                        .size(110.dp)
+                        .rotate(rotation)
+                ) {
+                    val strokeWidth = 3.dp.toPx()
+                    val color = BrandPrimary.copy(alpha = 0.6f)
+                    drawArc(
+                        color = color,
+                        startAngle = 0f,
+                        sweepAngle = 100f,
+                        useCenter = false,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = strokeWidth,
+                            cap = androidx.compose.ui.graphics.StrokeCap.Round
+                        )
+                    )
+                    drawArc(
+                        color = color,
+                        startAngle = 180f,
+                        sweepAngle = 100f,
+                        useCenter = false,
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(
+                            width = strokeWidth,
+                            cap = androidx.compose.ui.graphics.StrokeCap.Round
+                        )
+                    )
+                }
+
+                // Central pulsing heart icon
+                Box(
+                    modifier = Modifier
+                        .size(76.dp)
+                        .graphicsLayer(
+                            scaleX = scale,
+                            scaleY = scale
+                        )
+                        .shadow(16.dp, CircleShape, ambientColor = BrandPrimary, spotColor = BrandPrimary)
+                        .clip(CircleShape)
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(BrandPrimary, BrandSecondary)
+                            )
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = "Cœur de chargement",
+                        tint = Color.White,
+                        modifier = Modifier.size(36.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(28.dp))
+
+            // Loading Text Label
+            Text(
+                text = "Chargement en cours...",
+                color = Color.White,
+                fontSize = 19.sp,
+                fontWeight = FontWeight.Black,
+                textAlign = TextAlign.Center,
+                letterSpacing = 0.5.sp
+            )
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Subtitle contextual message
+            Text(
+                text = message,
+                color = GrayText,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(0.85f),
+                lineHeight = 18.sp
+            )
+            
+            Spacer(modifier = Modifier.height(36.dp))
+            
+            // Subtle indicator
+            CircularProgressIndicator(
+                color = BrandPrimary,
+                strokeWidth = 2.dp,
+                modifier = Modifier.size(20.dp)
+            )
         }
     }
 }

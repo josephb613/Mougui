@@ -55,35 +55,50 @@ object FirebaseHelper {
         return if (isInitialized) FirebaseFirestore.getInstance() else null
     }
 
-    // Sign in anonymously and store the user registration data safely on Firestore
-    suspend fun registerUser(name: String, phone: String, age: Int): Boolean {
-        val auth = getAuth() ?: return false
-        val db = getFirestore() ?: return false
+    fun getEmailFromPhone(phone: String): String {
+        val clean = phone.replace("+", "").replace(" ", "")
+        return "$clean@love.cd"
+    }
 
-        return try {
-            val result = auth.signInAnonymously().await()
-            val userId = result.user?.uid ?: return false
+    // Sign in using email (derived from phone) & password, and store the user registration data safely on Firestore
+    suspend fun registerUser(name: String, phone: String, password: String, age: Int): Boolean {
+        val auth = getAuth() ?: throw IllegalStateException("Firebase Auth n'est pas initialisé.")
+        val db = getFirestore() ?: throw IllegalStateException("Firebase Firestore n'est pas initialisé.")
 
-            val userMap = hashMapOf(
-                "uid" to userId,
-                "name" to name,
-                "phone" to phone,
-                "age" to age,
-                "isSubscribed" to false,
-                "createdAt" to System.currentTimeMillis()
-            )
+        val email = getEmailFromPhone(phone)
+        val finalPassword = password.ifBlank { "default123456" }
 
-            db.collection("users_profiles")
-                .document(userId)
-                .set(userMap, SetOptions.merge())
-                .await()
+        val result = auth.createUserWithEmailAndPassword(email, finalPassword).await()
+        val userId = result.user?.uid ?: throw IllegalStateException("Impossible de récupérer l'UID de l'utilisateur créé.")
 
-            Log.d(TAG, "User registered in Firebase Firestore with UID: $userId")
-            true
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed registering user: ${e.message}", e)
-            false
-        }
+        val userMap = hashMapOf(
+            "uid" to userId,
+            "name" to name,
+            "phone" to phone,
+            "age" to age,
+            "isSubscribed" to false,
+            "createdAt" to System.currentTimeMillis()
+        )
+
+        db.collection("users_profiles")
+            .document(userId)
+            .set(userMap, SetOptions.merge())
+            .await()
+
+        Log.d(TAG, "User registered in Firebase Auth and Firestore with UID: $userId")
+        Log.d(TAG, "Successfully registered with email: $email")
+        return true
+    }
+
+    // Sign in a user with their derived phone-email and password
+    suspend fun loginUser(phone: String, password: String): Boolean {
+        val auth = getAuth() ?: throw IllegalStateException("Firebase Auth n'est pas initialisé.")
+        val email = getEmailFromPhone(phone)
+        val finalPassword = password.ifBlank { "default123456" }
+
+        auth.signInWithEmailAndPassword(email, finalPassword).await()
+        Log.d(TAG, "User signed in successfully with Firebase Auth: $email")
+        return true
     }
 
     // Fetch dating profiles from Cloud Firestore
